@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>感染性休克临床数据收集表（单表最终版）</title>
+<style>
+  :root{--bg:#f8fafc;--card:#fff;--text:#111827;--muted:#6b7280;--primary:#0ea5e9;--ok:#10b981;--warn:#f59e0b;--err:#ef4444;--border:#e5e7eb;}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+  .container{max-width:1180px;margin:0 auto;padding:24px}
+  h1{font-size:22px;margin:0 0 4px} .sub{color:var(--muted);font-size:13px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+  button{border:0;border-radius:10px;padding:9px 14px;background:#111;color:#fff;cursor:pointer}
+  button.secondary{background:#e5e7eb;color:#111}
+  button.ok{background:var(--ok)} button.blue{background:var(--primary)}
+  .status{font-size:13px;color:#374151;margin:6px 0 14px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;margin:14px 0;overflow:hidden}
+  .card header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;cursor:pointer}
+  .card header h2{margin:0;font-size:16px} .hint{color:var(--muted);font-size:12px}
+  .grid{display:grid;gap:12px;padding:0 16px 16px}
+  @media (min-width:740px){.grid{grid-template-columns:repeat(2, minmax(0,1fr));}}
+  @media (min-width:980px){.grid{grid-template-columns:repeat(3, minmax(0,1fr));}}
+  label{display:flex;flex-direction:column;gap:6px}
+  label span{font-size:13px} input,select,textarea{padding:9px 10px;border:1px solid var(--border);border-radius:10px;font-size:14px}
+  .req{color:var(--err)} .fold{display:none}
+  .footer-tip{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>感染性休克临床数据收集表（T0/T1/T2：无创+有创）</h1>
+  <div class="sub">除血流动力学外，其余基线仅记录一次；HBP为可选。时间统一24小时制，格式：YYYY-MM-DD HH:MM</div>
+
+  <div class="toolbar">
+    <button id="save">保存草稿</button>
+    <button id="clear" class="secondary">清空表单</button>
+    <button id="submit" class="ok">提交（或下载CSV）</button>
+    <button id="download" class="blue">仅下载CSV</button>
+  </div>
+  <div id="status" class="status"></div>
+
+  <div id="formRoot"></div>
+
+  <div class="footer-tip">若未配置提交地址 SUBMIT_URL，点击“提交（或下载CSV）”会自动触发 CSV 下载；你可批量导入表格/统计软件。</div>
+</div>
+
+<script>
+// 提交地址（留空则走CSV下载模式）
+const SUBMIT_URL = "";
+
+// 统一列头（与“单表最终版”一致）
+const COLS = [
+  "Patient_ID","中心/病区","入ICU日期时间","出ICU日期时间","出生年份","性别(M/F)",
+  "身高_cm","体重_kg","BMI","入院来源(急诊/病房/手术室/其他)",
+  "主要感染部位(肺/腹腔/泌尿/血流/其他)","病原学证实(是/否/待定)",
+  "合并症_CCI","糖尿病(是/否)","慢性肾病(是/否)","慢性肝病(是/否)",
+  "心衰(是/否)","COPD(是/否)","实体肿瘤(是/否)","免疫抑制(是/否)","吸烟史(是/否)","饮酒史(是/否)",
+  "入组依据(Sepsis-3休克/重症脓毒症)","qSOFA总分","NEWS2总分","SOFA总分",
+  "T0时间(入ICU后0-6h内)","T1复评时间","T2复评时间",
+  "触发事件_T1(复苏/升压调整/低MAP/乳酸升高/常规复评)","触发事件_T2(复苏/升压调整/低MAP/乳酸升高/常规复评)",
+  "NIBP_MAP(mmHg)","HR(bpm)","RR(bpm)","SpO2(%)","体温(℃)","尿量_入科前6h(mL)",
+  "乳酸(mmol/L)","WBC(10^9/L)","CRP(mg/L)","PCT(ng/mL)","肌酐(umol/L)","胆红素(umol/L)","血小板(10^9/L)","血红蛋白(g/L)","pH","BE","HBP(ng/mL_可选)",
+  "NE等效(μg/kg/min)","升压药(是/否)","机械通气(是/否)","通气模式","液体输入量_入科前6h(mL)","CRRT(是/否)",
+  "有创_T0_时间","有创_T0_动脉MAP(mmHg)","有创_T0_SBP","有创_T0_DBP","有创_T0_CI(L/min/m2)","有创_T0_CO(L/min)","有创_T0_SVV(%)","有创_T0_PPV(%)","有创_T0_SV(mL)",
+  "无创_T0_时间","无创_T0_袖带MAP(mmHg)","无创_T0_CI(L/min/m2)","无创_T0_CO(L/min)","无创_T0_SVV(%)","无创_T0_PPV(%)","无创_T0_SV(mL)","无创_T0_设备","T0_有创无创时间差_分钟",
+  "有创_T1_时间","有创_T1_动脉MAP(mmHg)","有创_T1_SBP","有创_T1_DBP","有创_T1_CI(L/min/m2)","有创_T1_CO(L/min)","有创_T1_SVV(%)","有创_T1_PPV(%)","有创_T1_SV(mL)",
+  "无创_T1_时间","无创_T1_袖带MAP(mmHg)","无创_T1_CI(L/min/m2)","无创_T1_CO(L/min)","无创_T1_SVV(%)","无创_T1_PPV(%)","无创_T1_SV(mL)","无创_T1_设备","T1_有创无创时间差_分钟",
+  "有创_T2_时间","有创_T2_动脉MAP(mmHg)","有创_T2_SBP","有创_T2_DBP","有创_T2_CI(L/min/m2)","有创_T2_CO(L/min)","有创_T2_SVV(%)","有创_T2_PPV(%)","有创_T2_SV(mL)",
+  "无创_T2_时间","无创_T2_袖带MAP(mmHg)","无创_T2_CI(L/min/m2)","无创_T2_CO(L/min)","无创_T2_SVV(%)","无创_T2_PPV(%)","无创_T2_SV(mL)","无创_T2_设备","T2_有创无创时间差_分钟",
+  "48h_是否恶化(是/否)","恶化_升压加量(是/否)","恶化_启动有创通气(是/否)","恶化_启动CRRT(是/否)","恶化_其他说明",
+  "28天_是否死亡(是/否)","住院死亡(是/否)","ICU住院天数","机械通气天数","住院总天数","住院费用_元(可选)","再入ICU(是/否)",
+  "数据录入者","审核者","记录完成日期","缺失原因(未检查/设备不可及/不适用/其他)","单位核对完成(是/否)","备注"
+];
+
+const YES_NO = ["是","否"];
+const SOURCES = ["急诊","病房","手术室","其他"];
+const SITES = ["肺","腹腔","泌尿","血流","其他"];
+
+const GROUPS = [
+  {title:"一、基本信息（一次记录）", keys:[
+    "Patient_ID","中心/病区","入ICU日期时间","出ICU日期时间","出生年份","性别(M/F)",
+    "身高_cm","体重_kg","BMI","入院来源(急诊/病房/手术室/其他)",
+    "主要感染部位(肺/腹腔/泌尿/血流/其他)","病原学证实(是/否/待定)",
+    "合并症_CCI","糖尿病(是/否)","慢性肾病(是/否)","慢性肝病(是/否)",
+    "心衰(是/否)","COPD(是/否)","实体肿瘤(是/否)","免疫抑制(是/否)","吸烟史(是/否)","饮酒史(是/否)"
+  ], open:true},
+  {title:"二、入组与时间（一次记录）", keys:[
+    "入组依据(Sepsis-3休克/重症脓毒症)","qSOFA总分","NEWS2总分","SOFA总分",
+    "T0时间(入ICU后0-6h内)","T1复评时间","T2复评时间",
+    "触发事件_T1(复苏/升压调整/低MAP/乳酸升高/常规复评)","触发事件_T2(复苏/升压调整/低MAP/乳酸升高/常规复评)"
+  ], open:true},
+  {title:"三、生命体征与化验（一次记录）", keys:[
+    "NIBP_MAP(mmHg)","HR(bpm)","RR(bpm)","SpO2(%)","体温(℃)","尿量_入科前6h(mL)",
+    "乳酸(mmol/L)","WBC(10^9/L)","CRP(mg/L)","PCT(ng/mL)","肌酐(umol/L)","胆红素(umol/L)",
+    "血小板(10^9/L)","血红蛋白(g/L)","pH","BE","HBP(ng/mL_可选)"
+  ], open:true},
+  {title:"四、初始治疗/器官支持（一次记录）", keys:[
+    "NE等效(μg/kg/min)","升压药(是/否)","机械通气(是/否)","通气模式","液体输入量_入科前6h(mL)","CRRT(是/否)"
+  ], open:true},
+  {title:"五、血流动力学：T0（≤15分钟内完成有创+无创）", keys:[
+    "有创_T0_时间","有创_T0_动脉MAP(mmHg)","有创_T0_SBP","有创_T0_DBP","有创_T0_CI(L/min/m2)","有创_T0_CO(L/min)","有创_T0_SVV(%)","有创_T0_PPV(%)","有创_T0_SV(mL)",
+    "无创_T0_时间","无创_T0_袖带MAP(mmHg)","无创_T0_CI(L/min/m2)","无创_T0_CO(L/min)","无创_T0_SVV(%)","无创_T0_PPV(%)","无创_T0_SV(mL)","无创_T0_设备","T0_有创无创时间差_分钟"
+  ], open:true},
+  {title:"六、血流动力学：T1（≤15分钟内完成有创+无创）", keys:[
+    "有创_T1_时间","有创_T1_动脉MAP(mmHg)","有创_T1_SBP","有创_T1_DBP","有创_T1_CI(L/min/m2)","有创_T1_CO(L/min)","有创_T1_SVV(%)","有创_T1_PPV(%)","有创_T1_SV(mL)",
+    "无创_T1_时间","无创_T1_袖带MAP(mmHg)","无创_T1_CI(L/min/m2)","无创_T1_CO(L/min)","无创_T1_SVV(%)","无创_T1_PPV(%)","无创_T1_SV(mL)","无创_T1_设备","T1_有创无创时间差_分钟"
+  ], open:false},
+  {title:"七、血流动力学：T2（≤15分钟内完成有创+无创）", keys:[
+    "有创_T2_时间","有创_T2_动脉MAP(mmHg)","有创_T2_SBP","有创_T2_DBP","有创_T2_CI(L/min/m2)","有创_T2_CO(L/min)","有创_T2_SVV(%)","有创_T2_PPV(%)","有创_T2_SV(mL)",
+    "无创_T2_时间","无创_T2_袖带MAP(mmHg)","无创_T2_CI(L/min/m2)","无创_T2_CO(L/min)","无创_T2_SVV(%)","无创_T2_PPV(%)","无创_T2_SV(mL)","无创_T2_设备","T2_有创无创时间差_分钟"
+  ], open:false},
+  {title:"八、结局与质控（一次记录）", keys:[
+    "48h_是否恶化(是/否)","恶化_升压加量(是/否)","恶化_启动有创通气(是/否)","恶化_启动CRRT(是/否)","恶化_其他说明",
+    "28天_是否死亡(是/否)","住院死亡(是/否)","ICU住院天数","机械通气天数","住院总天数","住院费用_元(可选)","再入ICU(是/否)",
+    "数据录入者","审核者","记录完成日期","缺失原因(未检查/设备不可及/不适用/其他)","单位核对完成(是/否)","备注"
+  ], open:false}
+];
+
+const SELECT_MAP = {
+  "(是/否)": YES_NO,
+  "入院来源(急诊/病房/手术室/其他)": SOURCES,
+  "主要感染部位(肺/腹腔/泌尿/血流/其他)": SITES
+};
+
+const state = (()=>{ const cache = localStorage.getItem("septic_form_cache_html_v1"); return cache ? JSON.parse(cache) : Object.fromEntries(COLS.map(k=>[k,""])); })();
+
+function setStatus(msg){ document.getElementById("status").textContent = msg; }
+
+function minutesDiff(a,b){
+  if(!a||!b) return "";
+  const t1 = new Date(a.replace(/-/g,"/"));
+  const t2 = new Date(b.replace(/-/g,"/"));
+  const d = (t2 - t1)/60000;
+  if (isNaN(d)) return "";
+  return Math.round(d);
+}
+
+function createInput(k){
+  const wrap = document.createElement("label");
+  const title = document.createElement("span"); title.textContent = k; wrap.appendChild(title);
+
+  let selKey = null;
+  if(k.endsWith("(是/否)")) selKey="(是/否)";
+  else if(k==="入院来源(急诊/病房/手术室/其他)") selKey=k;
+  else if(k==="主要感染部位(肺/腹腔/泌尿/血流/其他)") selKey=k;
+
+  if(selKey){
+    const select = document.createElement("select");
+    select.setAttribute("data-name", k);
+    const empty = document.createElement("option"); empty.value=""; empty.textContent="— 请选择 —";
+    select.appendChild(empty);
+    SELECT_MAP[selKey].forEach(v=>{ const op = document.createElement("option"); op.value=v; op.textContent=v; select.appendChild(op); });
+    select.value = state[k] || "";
+    select.onchange = (e)=> { state[k]=e.target.value; autoDiff(); saveDraftSilent(); };
+    wrap.appendChild(select);
+    return wrap;
+  }
+
+  const input = (k.includes("说明") || ["备注"].includes(k)) ? document.createElement("textarea") : document.createElement("input");
+  input.setAttribute("data-name", k);
+
+  if(k.includes("时间") || k.includes("日期")){
+    input.placeholder = "YYYY-MM-DD HH:MM";
+  }else if(/\(mmHg\)|\(bpm\)|\(mL\)|\(L\/min|L\/min\/m2|%|μg\/kg\/min|g\/L|10\^9\/L|mg\/L|ng\/mL|umol\/L/.test(k)){
+    input.type = "number"; input.step = "any";
+  }else{
+    input.type = "text";
+  }
+
+  input.value = state[k] || "";
+  input.oninput = (e)=> { state[k]=e.target.value; autoDiff(); saveDraftSilent(); };
+  wrap.appendChild(input);
+  return wrap;
+}
+
+function buildSection(title, keys, open){
+  const card = document.createElement("div"); card.className = "card";
+  const head = document.createElement("header");
+  const h2 = document.createElement("h2"); h2.textContent = title;
+  const hint = document.createElement("div"); hint.className="hint"; hint.textContent = open ? "" : "点击展开";
+  head.appendChild(h2); head.appendChild(hint);
+  head.onclick = ()=>{ body.classList.toggle("fold"); hint.textContent = body.classList.contains("fold")? "点击展开" : ""; };
+  const body = document.createElement("div"); body.className = "grid" + (open ? "" : " fold");
+  keys.forEach(k=> body.appendChild(createInput(k)));
+  card.appendChild(head); card.appendChild(body);
+  return card;
+}
+
+function render(){
+  const root = document.getElementById("formRoot"); root.innerHTML = "";
+  GROUPS.forEach(g=> root.appendChild(buildSection(g.title, g.keys, g.open)));
+}
+render();
+
+function autoDiff(){
+  const t0 = minutesDiff(state["有创_T0_时间"], state["无创_T0_时间"]);
+  const t1 = minutesDiff(state["有创_T1_时间"], state["无创_T1_时间"]);
+  const t2 = minutesDiff(state["有创_T2_时间"], state["无创_T2_时间"]);
+  if(t0!=="" ){ state["T0_有创无创时间差_分钟"] = t0; const el=document.querySelector('[data-name="T0_有创无创时间差_分钟"]'); if(el) el.value=t0; }
+  if(t1!=="" ){ state["T1_有创无创时间差_分钟"] = t1; const el=document.querySelector('[data-name="T1_有创无创时间差_分钟"]'); if(el) el.value=t1; }
+  if(t2!=="" ){ state["T2_有创无创时间差_分钟"] = t2; const el=document.querySelector('[data-name="T2_有创无创时间差_分钟"]'); if(el) el.value=t2; }
+}
+
+function headersAndRow(){
+  const headers = COLS;
+  const values = headers.map(k => (state[k]??"").toString().replace(/\n/g," "));
+  return { headers, values };
+}
+function toCSVRow(){ const {headers, values} = headersAndRow(); return headers.join(",") + "\n" + values.join(","); }
+
+function downloadCSV(){
+  const csv = toCSVRow();
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (state["Patient_ID"] || "未命名") + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function saveDraft(){ localStorage.setItem("septic_form_cache_html_v1", JSON.stringify(state)); setStatus("已保存到本机（localStorage）。"); }
+function saveDraftSilent(){ localStorage.setItem("septic_form_cache_html_v1", JSON.stringify(state)); }
+
+async function submit(){
+  if(!state["Patient_ID"]) { setStatus("❗请填写 Patient_ID"); return; }
+  if(!state["入ICU日期时间"]) { setStatus("❗请填写 入ICU日期时间"); return; }
+  setStatus("正在提交...");
+  if(!SUBMIT_URL){
+    setStatus("未配置提交地址。已为你下载 CSV；后续可合并总表。");
+    downloadCSV(); return;
+  }
+  try{
+    const res = await fetch(SUBMIT_URL, {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({sheet:"单表最终版", data: state})
+    });
+    if(!res.ok) throw new Error("网络错误或服务器未就绪");
+    const out = await res.json().catch(()=>({ok:true}));
+    setStatus("✅ 提交成功" + (out?.message? "：" + out.message : ""));
+    localStorage.removeItem("septic_form_cache_html_v1");
+  }catch(e){
+    setStatus("提交失败：" + e.message + "。已为你下载 CSV 作为备份。");
+    downloadCSV();
+  }
+}
+
+document.getElementById("save").onclick = saveDraft;
+document.getElementById("clear").onclick = ()=>{
+  if(confirm("确定清空当前表单？")){
+    COLS.forEach(k=> state[k]="");
+    document.querySelectorAll("[data-name]").forEach(el=> el.value="");
+    localStorage.removeItem("septic_form_cache_html_v1");
+    setStatus("表单已清空。");
+  }
+};
+document.getElementById("submit").onclick = submit;
+document.getElementById("download").onclick = downloadCSV;
+</script>
+</body>
+</html>
